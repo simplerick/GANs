@@ -27,7 +27,7 @@ class Projector():
         self.dlatents_avg = torch.mean(dlatents, dim = 0, keepdim=True)
         self.dlatents_std = (torch.sum((dlatents - self.dlatents_avg) ** 2)/self.dlatent_avg_samples) ** 0.5
         min_res = self.G.const.shape[-1]
-        self.noise_maps_shapes = [(1, 2 , 1, min_res*2**i, min_res*2**i) for i in range(1,l+1)]
+        self.noise_maps_shapes = [(2 , 1, min_res*2**i, min_res*2**i) for i in range(1,l+1)]
 
 
     def lr_schedule(self, step):
@@ -44,16 +44,21 @@ class Projector():
         plt.show()
 
 
-    def run(self, target_images, num_steps=1000):
+    def run(self, target_images, num_steps=1000, upsample_size=None):
         self.num_steps = num_steps
         if not hasattr(self, 'dlatents_avg'):
             self.compute_init_approx()
         # initialize optimizable variables
         dlatents = self.dlatents_avg.repeat(target_images.shape[0],1).requires_grad_(True)
-        noise_maps = [torch.randn(s, device=dlatents.device).repeat(target_images.shape[0],1,1,1,1).requires_grad_(True) for s in self.noise_maps_shapes]
+        noise_maps = [torch.randn(target_images.shape[0],*s, device=dlatents.device).requires_grad_(True) for s in self.noise_maps_shapes]
         # create opt and lr scheduler
         optimizer = torch.optim.Adam([dlatents, *noise_maps], lr=self.max_lr)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, self.lr_schedule)
+        if upsample_size is None:
+            upsample = torch.nn.Identity()
+        else:
+            upsample = torch.nn.Upsample(size=upsample_size, mode='bilinear')
+            target_images = upsample(target_images)
         # iterations
         for step in tqdm(range(self.num_steps)):
             # generate noise for dlatents
@@ -63,7 +68,7 @@ class Projector():
             # generate image
             images = self.G.generate(dlatents + dlatents_noise, noise_maps)
             # compute loss
-            loss = self.image_loss(images, target_images).sum()
+            loss = self.image_loss(upsample(images), target_images).sum()
             if self.noise_reg_weight > 0:
                 loss += self.noise_reg_weight * Noise_reg(noise_maps)
             # backward pass, opt and scheduler steps
