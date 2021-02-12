@@ -23,4 +23,5 @@ I would appreciate help with testing.
 
 ### TODO
 
+- [ ] Base classes for Generator and Discriminator 
 - [ ] Arrange the training procedure.
